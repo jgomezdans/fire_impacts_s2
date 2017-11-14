@@ -3,9 +3,9 @@
 """
 Fire impacts processor
 
-This code takes two Landsat images from the same location and calculates
+This code takes two S2/MSI images from the same location and calculates
 spectral measures of fire impact due to the change in reflectance.
-The code assumes Landsat family of sensors (in particular LDCM), although
+The code assumes S2 family of sensors (in particular LDCM), although
 it is designed to be adapted to other sensors (e.g. Sentinel2, ETM+/TM5...)
 
 The code makes use of GDAL to pre-process, read and write files (mostly in
@@ -21,7 +21,6 @@ import datetime
 import fnmatch
 import logging
 import os
-import subprocess
 import sys
 
 import gdal
@@ -55,64 +54,31 @@ logger.addHandler(hdlr)
 logger.setLevel(logging.INFO)
 
 
-def get_SPOT_mask(self, fname):
-    """Calculates the mask from its different components (again, SPOT4/Take5 data
-    assumed). Will probably need to be modified for other sensors, and clearly
-    we are assuming we have a mask already, in TOA processing, this might be a
-    good place to apply a simple cloud/cloud shadow mask or something
-    like that."""
-
-    logger.info("Start of process for the mask file associated with %s" %
-                fname)
-    the_dir = os.path.dirname(fname)
-    the_fname = os.path.basename(fname)
-    mask_out = os.path.join(
-        the_dir, "MASK", the_fname.replace(".xml", "_MASK.TIF"))
-
-    the_mask = os.path.join(
-        the_dir, "MASK", the_fname.replace(".xml", "_SAT.tiff"))
-    g = gdal.Open(the_mask)
-    sat = g.ReadAsArray()
-    m3 = sat == 0
-
-    the_mask = mask.replace("SAT", "DIV")
-
-    g = gdal.Open(the_mask)
-    div = g.ReadAsArray()
-    m1 = div == 0
-
-    the_mask = mask.replace("SAT", "NUA")
-
-    g = gdal.Open(the_mask)
-    nua = g.ReadAsArray()
-    m2 = np.logical_not(np.bitwise_and(nua, 1).astype(np.bool))
-
-    drv = gdal.GetDriverByName("GTiff")
-    dst_ds = drv.Create(mask_out, g.RasterXSize, g.RasterYSize, 1,
-                        gdal.GDT_Int16, gdal_options=["COMPRESS=DEFLATE",
-                                                      "PREDICTOR=2", "INTERLEAVE=BAND", "TILED=YES",
-                                                      "BIGTIFF=YES"])
-    dst_ds.SetGeoTransform(g.GetGeoTransform())
-    dst_ds.SetProjection(g.GetProjectionRef())
-    M = np.array(m1 * m2 * m3).astype(np.int16)
-    dst_ds.GetRasterBand(1).WriteArray(M)
-
-    return output_mask
+def maja_mask(maja_datadir, resolution="R1"):
+    """Interprets the MAJA mask."""
+    mask_dir = os.path.join(maja_datadir, "MASKS")
+    mg2_file = [f for f in locate_fich("*MG2_{}.tif".format(resolution),
+                                       root=mask_dir)][0]
+    g = gdal.Open(mg2_file)
+    data = g.ReadAsArray()
+    mask = np.ones(data.shape, dtype=np.bool)
+    for bit in xrange(8):
+        mask[np.bitwise_and(data, 2**bit) == 2**bit] = False
+    return mask
 
 
-def reproject_image_to_master(master, slave, res=None):
+def reproject_image_to_master(master, slave):
+    """Reprojects one image to match up a master one using GDAL."""
 
     g = gdal.Open(master)
-    geoT = g.GetGeoTransform()
-    xmin = geoT[0]
-    ymax = geoT[3]
-    xmax = geoT[0] + g.RasterXSize * geoT[1]
-    ymin = geoT[3] + g.RasterYSize * geoT[-1]
+    geo_t = g.GetGeoTransform()
+    xmin = geo_t[0]
+    ymax = geo_t[3]
+    xmax = geo_t[0] + g.RasterXSize * geo_t[1]
+    ymin = geo_t[3] + g.RasterYSize * geo_t[-1]
     dst_filename = slave.replace(".tiff", "_crop.vrt")
-    subprocess.call(["gdalwarp", "-of", "VRT", "-ot", "Int16",
-                     "-r", "near",
-                     "-te", "%.3f" % xmin, "%.3f" % ymin, "%.3f" % xmax,
-                     "%.3f" % ymax,  slave, dst_filename])
+    gdal.Warp(slave, dst_filename, format="VRT", resampleAlg="near",
+              outputType="Int16", outputBounds=[xmin, ymin, xmax, ymax])
     return dst_filename
 
 
@@ -130,16 +96,20 @@ def check_dates(rho_pre_prefix, rho_post_prefix):
     was after the pre fire image, as it's easy to get it wrong. It works
     on the prefixes, and assumes that characters 9 to 16 of the prefix
     are actually the data."""
-
-    predate = datetime.datetime.strptime(rho_pre_prefix[9:16], "%Y%j")
-    postdate = datetime.datetime.strptime(rho_post_prefix[9:16], "%Y%j")
+    rho_pre_prefix = os.path.basename(rho_pre_prefix)
+    rho_post_prefix = os.path.basename(rho_post_prefix)
+    predate = datetime.datetime.strptime(rho_pre_prefix.split("_")[1],
+                                         "%Y%m/%d")
+    postdate = datetime.datetime.strptime(rho_post_prefix.split("_")[1],
+                                          "%Y%m/%d")
     logger.info("The prefire file is from %s" %
                 predate.strftime("%Y-%B-%d"))
     logger.info("The postfire file is from %s" %
                 predate.strftime("%Y-%B-%d"))
     if postdate < predate:
-        raise ValueError, "The pre-fire image (%s) is older than the " % \
-            rho_pre_prefix + "post-fire image (%s)" % rho_post_prefix
+        raise ValueError("The pre-fire image ({:s}) is older than the "
+                         "post-fire image ({:s})".format(rho_pre_prefix,
+                                                         rho_post_prefix))
 
 
 def extract_chunks(the_files, the_bands=None):
@@ -166,8 +136,8 @@ def extract_chunks(the_files, the_bands=None):
     ds_config['proj'] = proj
     block_size = [block_size[0], block_size[1]]
     logger.info("Blocksize is (%d,%d)" % (block_size[0], block_size[1]))
-    #block_size = [ 256, 256 ]
-    # store these numbers in variables that may change later
+    #  block_size = [ 256, 256 ]
+    #  store these numbers in variables that may change later
     nx_valid = block_size[0]
     ny_valid = block_size[1]
     # find total x and y blocks to be read
@@ -213,89 +183,25 @@ def extract_chunks(the_files, the_bands=None):
                    data_in)
 
 
-def produce_virtualdataset(prefix, directory, tmpdir="/tmp/"):
-    """This function takes the GeoTIFF files from ESPA surface
-    reflectance, and creates a virtual dataset with the reflectance
-    and the CFmask (other masks are possible, but I've only considered
-    CFmask here, as it appears to be the best).
-    NOTE that you will beed to have gdalbuildvrt in your path!
-    Parameters
-    ------------
-    prefix: str
-        The Landsat scene identifier something that typically looks like
-        this: ``LC82040312015257LGN00``. It is used to find related
-        GeoTIFF files in the system
-    directory: str
-        The (parent) directory where the files that start by ``prefix``
-        will be searched for.
-    tmpdir: str
-        A temporary directory. By default, this is ``/tmp/`` in Linux. This
-        directory requires the user to have r/w access, and is where the VRTs
-        are created
+def produce_virtualdataset(prefix, directory, tmpdir="/tmp/", product="FRE"):
+    """Produces a VRT dataset with all the S2 bands in their right order. The
+    resulting VRT file will be stored in `tmpdir` with filename related to the
+    prefix. The `directory` stores the location of the files. We can select the
+    product type, here either `FRE` or `SRE` for MAJA. All bands are reasmpled
+    to 10m resolution with a nearest neighbour interpolation."""
 
-    Returns
-    ---------
-    The filename of the virtual dataset
-    """
-    logger.info("Creating VRT with the bands in the right order")
-    files = [f for f in locate_fich(
-        "%s*.tif" % prefix, root=directory)]
-    selected_bands = ["cfmask", "band1", "band2", "band3", "band4", "band5", "band6",
-                      "band7"]
-    sel_files = []
-    for f in files:
-        for band in selected_bands:
-            if f.find(band) >= 0:
-                sel_files.append(f)
-                break
-    sel_files.sort()
-    sel_files.pop(1)  # Remove the cfmask conf band ;-)
-    with open(os.path.join(tmpdir, "%s_files.txt" % prefix), 'w') as fp:
-        for f in sel_files:
-            fp.write("%s\n" % f)
-    subprocess.call(["gdalbuildvrt", "-separate", "-input_file_list",
-                     os.path.join(tmpdir, "%s_files.txt" % prefix),
-                     os.path.join(tmpdir, "%s.vrt" % prefix)])
-    subprocess.call(["gdal_translate", "-of", "GTiff", "-ot", "Int16",
-                     "-co", "COMPRESS=PACKBITS", "-co", "BIGTIFF=YES",
-                     os.path.join(tmpdir, "%s.vrt" % prefix),
-                     os.path.join(tmpdir, "%swork.tiff" % prefix)])
-    subprocess.call(["gdal_translate", "-of", "VRT", "-ot", "Int16",
-                     os.path.join(tmpdir, "%s.vrt" % prefix),
-                     os.path.join(tmpdir, "%swork.vrt" % prefix)])
-
-    logger.info("Created output in %s" % os.path.join(tmpdir,
-                                                      "%swork.tiff" % prefix))
-    #os.remove ( os.path.join ( tmpdir, "%s.vrt" % prefix) )
-    #os.remove ( os.path.join ( tmpdir, "%s_files.txt" % prefix) )
-
-    logger.info("Removed temporary VRT %s " % os.path.join(tmpdir,
-                                                           "%s.vrt" % prefix))
-    return os.path.join(tmpdir, "%swork.tiff" % prefix)
-
-
-def produce_virtualdataset_SPOT(prefix, directory, tmpdir="/tmp/"):
-    """
-    What am I doing here? One is to get the mask, using ``get_SPOT_mask``.
-    Then, attaching that to the reflectance as band 0. Easiest thing to
-    do is to create a VRT from the REFL GeoTIFF, & add the mask.
-    """
-
-    fname_mask = get_SPOT_mask(fname)
-    g = gdal.Open()
-    dst_ds = drv.CreateCopy(os.path.join(tmpdir, "copy.vrt"), g, 0)
-    dst_ds.AddBand(gdal.GDT_Int16, ['subClass: VRTRasterBand'])
-    md = {}
-    xml = '''    <SimpleSource>
-      <SourceFilename>%s</SourceFilename>
-      <SourceBand>1</SourceBand>
-    </SimpleSource>''' % fname_mask
-    md['source_0'] = xml
-    dst_ds.GetRasterBand(5).SetMetadata(md, 'vrt_sources')
-
-    drv_out = gdal.GetDriverByName("GTiff")
-    dst_ds2 = drv_out.CreateCopy(os.path.join(tmpdir, "copy.tif"), dst_ds, 0)
-    del dst_ds2
+    selected_bands = ["B2", "B3", "B4", "B5", "B6", "B7", "B8A", "B11", "B12"]
+    files = [f for f in locate_fich("*.{}.*tif".format(product),
+                                    root=directory)]
+    file_list = []
+    for sel_band in selected_bands:
+        for fich in files:
+            if fich.find(sel_band) >= 0:
+                file_list.append(fich)
+    dst_filename = os.path.join(tmpdir, "{}_FRE.vrt".format(prefix))
+    gdal.BuildVRT(dst_filename, file_list, resolution="highest",
+                  resampleAlg="near")
+    return dst_filename
 
 
 class FireImpacts (object):
@@ -417,15 +323,15 @@ class FireImpacts (object):
                               a1 * 400, 255).astype(np.uint8)
 
             self.ds_params.GetRasterBand(1).WriteArray(
-                                                fcc, xoff=this_X, yoff=this_Y)
+                fcc, xoff=this_X, yoff=this_Y)
 
             self.ds_params.GetRasterBand(2).WriteArray(
-                                                a0, xoff=this_X, yoff=this_Y)
+                a0, xoff=this_X, yoff=this_Y)
             self.ds_params.GetRasterBand(3).WriteArray(
-                                                a1, xoff=this_X, yoff=this_Y)
+                a1, xoff=this_X, yoff=this_Y)
             self.ds_unc.GetRasterBand(1).WriteArray(
-                                                fccunc, xoff=this_X,
-                                                yoff=this_Y)
+                fccunc, xoff=this_X,
+                yoff=this_Y)
             self.ds_unc.GetRasterBand(2).WriteArray(a0unc, xoff=this_X,
                                                     yoff=this_Y)
             self.ds_unc.GetRasterBand(3).WriteArray(a1unc, xoff=this_X,
@@ -437,7 +343,8 @@ class FireImpacts (object):
                                                           yoff=this_Y)
              for i in xrange(self.n_bands)]
             [self.ds_fwd.GetRasterBand(i + 1).WriteArray(fwd[i, :, :],
-                                                         xoff=this_X, yoff=this_Y)
+                                                         xoff=this_X,
+                                                         yoff=this_Y)
              for i in xrange(self.n_bands)]
             logger.info("Burp!")
         self.ds_burn = None
@@ -446,9 +353,10 @@ class FireImpacts (object):
         os.remove(self.rho_post_file)
         os.remove(self.rho_pre_file)
 
-    def create_output(self, projection, geotransform, Nx, Ny, fmt="GTiff", suffix="tif",
-                      gdal_opts=["COMPRESS=DEFLATE", "PREDICTOR=2",
-                                 "INTERLEAVE=BAND", "TILED=YES", "BIGTIFF=YES"]):
+    def create_output(self, projection, geotransform, Nx, Ny, fmt="GTiff",
+                      suffix="tif",
+                      gdal_opts=["COMPRESS=DEFLATE", "PREDICTOR=2", "TILED=YES",
+                                 "INTERLEAVE=BAND",  "BIGTIFF=YES"]):
         """A method to create the output from the inversion code. By default,
         uses the GeoTIFF format, although this can be changed by changing
         the value of ``fmt`` to another GDAL-friendly format (remember to
@@ -475,13 +383,15 @@ class FireImpacts (object):
         output_fname = "%s_%s_burn.%s" % (self.rho_pre_prefix,
                                           self.rho_post_prefix, suffix)
         self.ds_burn = drv.Create(output_fname, Nx, Ny,
-                                  self.n_bands, gdal.GDT_Float32, options=gdal_opts)
+                                  self.n_bands, gdal.GDT_Float32,
+                                  options=gdal_opts)
         self.ds_burn.SetGeoTransform(geotransform)
         self.ds_burn.SetProjection(projection)
 
         logger.info("Created output uncertainties file %s " % output_fname)
         output_fname = "%s_%s_uncertainties.%s" % (self.rho_pre_prefix,
-                                                   self.rho_post_prefix, suffix)
+                                                   self.rho_post_prefix,
+                                                   suffix)
         self.ds_unc = drv.Create(output_fname, Nx, Ny,
                                  4, gdal.GDT_Float32, options=gdal_opts)
         self.ds_unc.SetGeoTransform(geotransform)
@@ -491,7 +401,8 @@ class FireImpacts (object):
                                          self.rho_post_prefix, suffix)
         logger.info("Created output fwd model file %s " % output_fname)
         self.ds_fwd = drv.Create(output_fname, Nx, Ny,
-                                 self.n_bands, gdal.GDT_Float32, options=gdal_opts)
+                                 self.n_bands, gdal.GDT_Float32,
+                                 options=gdal_opts)
         self.ds_fwd.SetGeoTransform(geotransform)
         self.ds_fwd.SetProjection(projection)
 
@@ -561,6 +472,32 @@ class FireImpacts (object):
         return (fcc, a0, a1, sBurn, sFWD, fccUnc, a0Unc, a1Unc, rmse)
 
 
+class FireImpactsS2MAJA(FireImpacts):
+    def __init__(self, rho_pre_prefix, rho_post_prefix, datadir,
+                 tmpdir="/home/ucfajlg/test_landsat/tmp/"):
+
+        FireImpacts.__init__(self, rho_pre_prefix,
+                             rho_post_prefix, datadir, tmpdir=tmpdir)
+
+    def _spectral_setup(self):
+        """A method that sets up the spectral properties of the data. In
+        this case, we need to select the centre wavelengths (the example
+        here is for LDCM/Landsat8), and the associated per band uncertainties.
+        These are hard to get hold of, and you might want to set them to
+        ones, in which case the uncertainty quantification in the model
+        parameters will make no sense. The idea is that if you want to use
+        another sensor, you just derive a class and change this method (and
+        maybe methods that allow you to access data).        """
+        logger.info("Spectral setup for S2/MSI")
+        # self.bu = np.onesnp.array([0.004, 0.015, 0.003, 0.004, 0.013,
+        #                    0.010, 0.006])
+        self.wavelengths = np.array([490., 560., 665., 705., 740, 865., 1610,
+                                     2190.])
+        self.n_bands = len(self.wavelengths)
+        self.bu = np.ones(self.n_bands) * 0.015  # Say?
+        self.lk, self.K = self._setup_spectral_mixture_model()
+
+
 class FireImpactsTM5 (FireImpacts):
 
     def __init__(self, rho_pre_prefix, rho_post_prefix, datadir,
@@ -618,15 +555,18 @@ class FireImpactsETM (FireImpacts):
 
 
 class FireImpactsSPOT (FireImpacts):
-    """################################################################################
+    """########################################################################
        #     NOTES
-       ################################################################################
+       #########################################################################
 
-        It probably makes sense to stack all the SPOT masks, reflectance and what not
-        in a multilayer raster, reproject using VRTs if required, and change the
+        It probably makes sense to stack all the SPOT masks, reflectance and
+        what not
+        in a multilayer raster, reproject using VRTs if required, and change
+        the
         chunking loop to interpret the mask there.
 
-        The other option is to take the masks, interpret them and create a Byte dataset
+        The other option is to take the masks, interpret them and create a Byte
+        dataset
         that can then be added to the reflectance bands.
         """
 
@@ -642,7 +582,8 @@ class FireImpactsSPOT (FireImpacts):
         logger.info("Preprocessing post file %s" % rho_pre_prefix)
 
         self.rho_post_file = produce_virtualdataset_SPOT(rho_post_prefix,
-                                                         datadir, tmpdir=tmpdir)
+                                                         datadir,
+                                                         tmpdir=tmpdir)
         self.rho_post_file = reproject_image_to_master(self.rho_pre_file,
                                                        self.rho_post_file)
 
@@ -685,7 +626,7 @@ if __name__ == "__main__":
     parser.set_defaults(quantise=False)
     args = parser.parse_args()
 
-    fcc_processor = FireImpacts(args.pre_fire_scene, args.post_fire_scene,
+    fcc_processor = FireImpactsS2MAJA(args.pre_fire_scene, args.post_fire_scene,
                                 args.data, tmpdir=args.temp,
                                 quantise=args.quantise)
     fcc_processor.launch_processor()
