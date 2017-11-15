@@ -134,7 +134,7 @@ def extract_chunks(the_files, the_bands=None):
     ds_config['nb'] = g.RasterCount
     ds_config['geoT'] = geoT
     ds_config['proj'] = proj
-    block_size = [block_size[0], block_size[1]]
+    block_size = [block_size[0]*10, block_size[1]*10]
     logger.info("Blocksize is (%d,%d)" % (block_size[0], block_size[1]))
     #  block_size = [ 256, 256 ]
     #  store these numbers in variables that may change later
@@ -191,8 +191,8 @@ def produce_virtualdataset(prefix, directory, tmpdir="/tmp/", product="FRE"):
     to 10m resolution with a nearest neighbour interpolation."""
 
     selected_bands = ["B2", "B3", "B4", "B5", "B6", "B7", "B8A", "B11", "B12"]
-    files = [f for f in locate_fich("*.{}.*tif".format(product),
-                                    root=directory)]
+    files = [f for f in locate_fich("*_{}_*.tif".format(product),
+                                    root=os.path.join(directory, prefix))]
     file_list = []
     for sel_band in selected_bands:
         for fich in files:
@@ -200,7 +200,7 @@ def produce_virtualdataset(prefix, directory, tmpdir="/tmp/", product="FRE"):
                 file_list.append(fich)
     dst_filename = os.path.join(tmpdir, "{}_FRE.vrt".format(prefix))
     gdal.BuildVRT(dst_filename, file_list, resolution="highest",
-                  resampleAlg="near")
+                  resampleAlg="near", separate=True)
     return dst_filename
 
 
@@ -211,11 +211,12 @@ class FireImpacts (object):
     """
 
     def __init__(self, rho_pre_prefix, rho_post_prefix, datadir,
-                 tmpdir="/home/ucfajlg/test_landsat/tmp/", quantise=False):
+                 tmpdir="/tmp/", quantise=False):
 
         self.save_quantised = quantise
         self.rho_pre_prefix = rho_pre_prefix
         self.rho_post_prefix = rho_post_prefix
+        self.datadir = datadir
         logger.info("Preprocessing pre file %s" % rho_pre_prefix)
         self.rho_pre_file = produce_virtualdataset(rho_pre_prefix,
                                                    datadir, tmpdir=tmpdir)
@@ -223,8 +224,9 @@ class FireImpacts (object):
 
         self.rho_post_file = produce_virtualdataset(rho_post_prefix,
                                                     datadir, tmpdir=tmpdir)
-        self.rho_post_file = reproject_image_to_master(self.rho_pre_file,
-                                                       self.rho_post_file)
+        
+        #self.rho_post_file = reproject_image_to_master(self.rho_pre_file,
+        #                                               self.rho_post_file)
 
         self._spectral_setup()
 
@@ -255,9 +257,16 @@ class FireImpacts (object):
         single Landsat tile where all pixels are considered. Efficiency
         gains are very possible, but I haven't explored them here."""
 
+        pre_mask = maja_mask(os.path.join(self.datadir, self.rho_pre_prefix),
+                             resolution="R1")
+        post_mask = maja_mask(os.path.join(self.datadir, self.rho_post_prefix),
+                             resolution="R1")
+        mask = post_mask*pre_mask
+
         the_fnames = [self.rho_pre_file, self.rho_post_file]
         first = True
         chunk = 0
+        
         for (ds_config, this_X, this_Y, nx_valid, ny_valid, data) in \
                 extract_chunks(the_fnames):
             if first:
@@ -277,41 +286,48 @@ class FireImpacts (object):
                                     dtype=np.float32)
             fwd = np.zeros((self.n_bands, ny_valid, nx_valid),
                            dtype=np.float32)
-
+            if np.sum( mask[this_Y:(this_Y + ny_valid), 
+                            this_X:(this_X + nx_valid)] ) == 0:
+                logger.info("Chunk %d:  All pixels masked..." % chunk)
+                continue
             for (j, i) in np.ndindex((nx_valid, ny_valid)):
                 # if ( data[0][0, i,j] == 0 ) and ( data[1][0, i,j] == 0 ):
-                if (data[0][0, i, j] != 0) or (data[1][0, i, j] != 0):
+                ###if ((this_Y +i) >= 6500 and (this_Y +i) <= 9500) and\
+                   ###((this_X + j) >= 5500 and (this_X + j) <= 8000):
+                    ###print "Inside burnscar"
+                if not mask[this_Y + i, this_X + j]:
                     continue
 
-                if np.all(data[0][1:, i, j] > 0) \
-                        and np.all(data[1][1:, i, j] > 0) \
-                        and np.all(data[0][1:, i, j] < 10000) \
-                        and np.all(data[1][1:, i, j] < 10000):
-                    try:
-                        (xfcc, xa0, xa1, xsBurn, xsFWD, xfccUnc, xa0Unc,
-                            xa1Unc, xrmse) = self.invert_spectral_mixture_model(
-                            data[0][1:, i, j], data[1][1:, i, j])
-                        fcc[i, j] = xfcc
-                        a0[i, j] = xa0
-                        a1[i, j] = xa1
-                        fccunc[i, j] = xfccUnc
-                        a0unc[i, j] = xa0Unc
-                        a1unc[i, j] = xa1Unc
-                        rmse[i, j] = xrmse
-                        burn[:, i, j] = xsBurn
-                        fwd[:, i, j] = xsFWD
-                        rmse[i, j] = xrmse
-                    except np.linalg.LinAlgError:
-                        fcc[i, j] = -9999
-                        a0[i, j] = -9999
-                        a1[i, j] = -9999
-                        fccunc[i, j] = -9999
-                        a0unc[i, j] = -9999
-                        a1unc[i, j] = -9999
-                        rmse[i, j] = -9999
-                        burn[:, i, j] = -9999
-                        fwd[:, i, j] = -9999
-                        rmse[i, j] = -9999
+                #if np.all(data[0][1:, i, j] > 0) \
+                        #and np.all(data[1][1:, i, j] > 0) \
+                        #and np.all(data[0][1:, i, j] < 10000) \
+                        #and np.all(data[1][1:, i, j] < 10000):
+                try:
+                    
+                    (xfcc, xa0, xa1, xsBurn, xsFWD, xfccUnc, xa0Unc,
+                        xa1Unc, xrmse) = self.invert_spectral_mixture_model(
+                        data[0][:, i, j], data[1][:, i, j])
+                    fcc[i, j] = xfcc
+                    a0[i, j] = xa0
+                    a1[i, j] = xa1
+                    fccunc[i, j] = xfccUnc
+                    a0unc[i, j] = xa0Unc
+                    a1unc[i, j] = xa1Unc
+                    rmse[i, j] = xrmse
+                    burn[:, i, j] = xsBurn
+                    fwd[:, i, j] = xsFWD
+                    rmse[i, j] = xrmse
+                except np.linalg.LinAlgError:
+                    fcc[i, j] = -9999
+                    a0[i, j] = -9999
+                    a1[i, j] = -9999
+                    fccunc[i, j] = -9999
+                    a0unc[i, j] = -9999
+                    a1unc[i, j] = -9999
+                    rmse[i, j] = -9999
+                    burn[:, i, j] = -9999
+                    fwd[:, i, j] = -9999
+                    rmse[i, j] = -9999
             # Block has been processed, dump data to files
             logger.info("Chunk %d done! Now saving to disk..." % chunk)
             if self.save_quantised:
@@ -491,8 +507,8 @@ class FireImpactsS2MAJA(FireImpacts):
         logger.info("Spectral setup for S2/MSI")
         # self.bu = np.onesnp.array([0.004, 0.015, 0.003, 0.004, 0.013,
         #                    0.010, 0.006])
-        self.wavelengths = np.array([490., 560., 665., 705., 740, 865., 1610,
-                                     2190.])
+        self.wavelengths = np.array([490.0, 560.0, 665.0, 705, 740, 783,           
+                                      865.0, 1610.0, 2190.0])
         self.n_bands = len(self.wavelengths)
         self.bu = np.ones(self.n_bands) * 0.015  # Say?
         self.lk, self.K = self._setup_spectral_mixture_model()
@@ -627,6 +643,5 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     fcc_processor = FireImpactsS2MAJA(args.pre_fire_scene, args.post_fire_scene,
-                                args.data, tmpdir=args.temp,
-                                quantise=args.quantise)
+                                args.data, tmpdir=args.temp)
     fcc_processor.launch_processor()
