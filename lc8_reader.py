@@ -225,13 +225,13 @@ class LC8File(object):
         g = gdal.Open(self.lc8_files.saturation.as_posix())
         qa = g.ReadAsArray()
         mask2 = qa == 0 # No saturation
-        
-        g = gdal.Open(self.lc8_files.aot.as_posix())
-        qa = g.ReadAsArray()
-        mask3 = np.in1d(qa, np.array(
-                [2, 66, 130, 194, 32, 96, 100, 160, 164, 224, 228])).reshape(
-                    qa.shape)
-        return mask1 * mask2 * mask3
+        return mask1*mask2
+        #g = gdal.Open(self.lc8_files.aot.as_posix())
+        #qa = g.ReadAsArray()
+        #mask3 = np.in1d(qa, np.array(
+                #[2, 66, 130, 194, 32, 96, 100, 160, 164, 224, 228])).reshape(
+                    #qa.shape)
+        #return mask1 * mask2 * mask3
         
         
     def _uncompress_to_folder(self, archive, target_folder,
@@ -271,7 +271,8 @@ class LC8File(object):
                 aot_qa = the_file
         log.debug("All files found!")
         surf_reflectance_output=target_folder/"LC8_surf_refl.vrt"
-        gdal.BuildVRT(surf_reflectance_output.as_posix(), surf_reflectance,
+        gdal.BuildVRT(surf_reflectance_output.as_posix(), 
+                      sorted(surf_reflectance),
                       resolution="highest", resampleAlg="near",
                       separate=True)
         self.pathrow, acq_time = the_file.stem.split("_")[2:4]
@@ -293,7 +294,7 @@ class LC8Fire(object):
         self.rho_post_prefix = Path(post_fire).name.split("-")[0]
         
         assert self.post_fire.acq_time > self.pre_fire.acq_time
-        
+        assert self.post_fire.pathrow == self.pre_fire.pathrow
         self.save_quantised = quantise
         
         log.info("Spectral setup for Landsat8")
@@ -355,10 +356,10 @@ class LC8Fire(object):
                                    ds_config['nx'], ds_config['ny'])
                 first = False
             chunk += 1
-            log.info("Doing Chunk %d..." % chunk)
+            log.info(f"Doing Chunk {chunk}")
             if np.sum( mask[this_Y:(this_Y + ny_valid), 
                             this_X:(this_X + nx_valid)] ) == 0:
-                log.info("Chunk %d:  All pixels masked..." % chunk)
+                log.info(f"Chunk {chunk}  All pixels masked...")
                 continue
             M = mask[this_Y:(this_Y + ny_valid), 
                      this_X:(this_X + nx_valid)]
@@ -371,7 +372,11 @@ class LC8Fire(object):
 
 
             # Block has been processed, dump data to files
-            log.info("Chunk %d done! Now saving to disk..." % chunk)
+            log.info(f"\t->Chunked! {M.sum()} pixels processed")
+            log.info(f"\t\t->fcc {xfcc[M].min():4.3g} {xfcc[M].mean():4.3g} {xfcc[M].max():4.3g} ")
+            log.info(f"\t\t->a0 {a0[M].min():4.3g} {a0[M].mean():4.3g} {a0[M].max():4.3g} ")
+            log.info(f"\t\t->a0 {a1[M].min():4.3g} {a1[M].mean():4.3g} {a1[M].max():4.3g} ")
+            log.info(f"\t->Now saving to disk...{chunk}")
             if self.save_quantised:
                 xfcc = np.where(np.logical_and(xfcc > 1e-3, xfcc <= 1.2),
                                xfcc * 100, 255).astype(np.uint8)
@@ -410,6 +415,7 @@ class LC8Fire(object):
         self.ds_burn = None
         self.ds_fwd = None
         self.ds_params = None
+        self.ds_rmse = None
 
     def create_output(self, projection, geotransform, Nx, Ny, fmt="GTiff",
                         suffix="tif",
@@ -476,15 +482,19 @@ class LC8Fire(object):
         ####self.ds_fwd.SetProjection(projection)
     
 if __name__ == "__main__":
-    lc8_pre = "./test_data/" + \
+    lc8_pref = "./test_data/" + \
                   "LC082040322017061501T1-SC20180328085351.tar.gz"
-    lc8_post = "./test_data/" + \
+    lc8_postf = "./test_data/" + \
                     "LC082040322017070101T1-SC20180328085355.tar.gz"
-    #lc8_pre = LC8File("./test_data/" + 
-    #              "LC082040322017061501T1-SC20180328085351.tar.gz", temp_folder=None)
-    #lc8_post = LC8File("./test_data/" + 
-    #              "LC082040322017070101T1-SC20180328085355.tar.gz", temp_folder=None,
-    #              master_file=lc8_pre.lc8_files.qa.as_posix())
+
+    #lc8_pref = "/home/ucfajlg/temp/" + \
+                #"LC082040322017061501T1-SC20180328085351.tar.gz"
+    #lc8_postf = "/home/ucfajlg/temp/" + \
+                #"LC082040322017070101T1-SC20180328085355.tar.gz"
+
+    #lc8_pre = LC8File(lc8_pref, temp_folder=None)
+    #lc8_post = LC8File(lc8_postf, temp_folder=None,
+                  #master_file=lc8_pre.lc8_files.qa.as_posix())
     
-    fcc = LC8Fire(lc8_pre, lc8_post)
+    fcc = LC8Fire(lc8_pref, lc8_postf)
     fcc.launch_processor()
