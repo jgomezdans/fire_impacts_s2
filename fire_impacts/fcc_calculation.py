@@ -14,7 +14,7 @@ from collections import namedtuple
 
 from lc8_reader import LC8File, NoLC8File
 
-from s2_reader import S2File, NoS2File
+from s2_reader import S2File, NoS2File, search_s2_tiles
 
 from utils import reproject_image
 
@@ -276,3 +276,11 @@ class FireImpacts(object):
                                     ####options=gdal_opts)
         ####self.ds_fwd.SetGeoTransform(geotransform)
         ####self.ds_fwd.SetProjection(projection)
+
+if __name__ == "__main__":
+    granules = search_s2_tiles("/data/selene/ucfajlg/fcc_sentinel2/Alberta/",
+                                   "T12VVH")
+    files = []
+    for k, v in granules.items():
+        files.append(v.as_posix())
+    observations =
