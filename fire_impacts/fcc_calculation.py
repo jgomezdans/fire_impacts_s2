@@ -29,7 +29,7 @@ log = logging.getLogger(__name__)
 
 class Observations(object):
     def __init__(self, pre_fire, post_fire, temp_folder=None):
-        import pdb; pdb.set_trace()
+        
         try:
             self.pre_fire = LC8File(pre_fire, temp_folder=temp_folder)
             self.post_fire = LC8File(post_fire, 
