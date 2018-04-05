@@ -29,15 +29,18 @@ log = logging.getLogger(__name__)
 
 class Observations(object):
     def __init__(self, pre_fire, post_fire, temp_folder=None):
+        import pdb; pdb.set_trace()
         try:
             self.pre_fire = LC8File(pre_fire, temp_folder=temp_folder)
-            self.post_fire = LC8File(post_fire, master_file=pre_fire,
+            self.post_fire = LC8File(post_fire, 
+                                     master_file=
+                                     self.pre_fire.surface_reflectance.as_posix(),
                                      temp_folder=temp_folder)
             self.rho_pre_prefix = Path(pre_fire).name.split("-")[0]
             self.rho_post_prefix = Path(post_fire).name.split("-")[0]
             log.info("Spectral setup for Landsat8")
-            self.bu = np.ones(6)
             self.wavelengths = np.array([480., 560., 655., 865., 1610., 2200])
+            self.bu = np.ones_like(self.wavelengths)
             self.n_bands = len(self.wavelengths)
             self.lk, self.K = self._setup_spectral_mixture_model()
 
@@ -46,9 +49,9 @@ class Observations(object):
                 self.pre_fire = S2File.get_file_format_version(pre_fire)
                 self.post_fire = S2File.get_file_format_version(post_fire)
                 log.info("Spectral setup for Sentinel2")
-                self.bu = np.ones(6)
                 self.wavelengths = np.array([490., 560., 665., 705, 740., 783,
                                              865., 1610., 2190])
+                self.bu = np.ones_like(self.wavelengths)
                 self.n_bands = len(self.wavelengths)
                 self.lk, self.K = self._setup_spectral_mixture_model()
             except NoS2File:
@@ -283,4 +286,10 @@ if __name__ == "__main__":
     files = []
     for k, v in granules.items():
         files.append(v.as_posix())
-    observations =
+        print(k,v)
+    #observations_s2 = Observations(files[0], files[1])
+    lc8_pref = "../test_data/" + \
+                  "LC082040322017061501T1-SC20180328085351.tar.gz"
+    lc8_postf = "../test_data/" + \
+                    "LC082040322017070101T1-SC20180328085355.tar.gz"
+    observations_lc8 = Observations(lc8_pref, lc8_postf)
