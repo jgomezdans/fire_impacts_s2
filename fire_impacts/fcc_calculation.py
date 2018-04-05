@@ -237,10 +237,11 @@ class FireImpacts(object):
         self.ds_params.SetGeoTransform(geotransform)
         self.ds_params.SetProjection(projection)
         log.debug("Success!")
-        log.debug("Creatingoutput RMSE signal file %s " % output_fname)
+        
         output_fname = f"{self.output_dir}/" + \
             f"{self.observations.rho_pre_prefix}_" + \
                 f"{self.observations.rho_post_prefix}_rmse.{suffix}"
+        log.debug("Creatingoutput RMSE signal file %s " % output_fname)
         self.ds_rmse = drv.Create(output_fname, Nx, Ny,
                                   1, gdal.GDT_Float32,
                                   options=gdal_opts)
@@ -276,12 +277,12 @@ class FireImpacts(object):
         ####self.ds_fwd.SetProjection(projection)
 
 if __name__ == "__main__":
-    #granules = search_s2_tiles("/data/selene/ucfajlg/fcc_sentinel2/Alberta/",
-    #                               "T12VVH")
+    granules = search_s2_tiles("/data/selene/ucfajlg/fcc_sentinel2/Alberta/",
+                                   "T12VVH")
     #granules = search_s2_tiles("/data/selene/ucfajlg/fcc_sentinel2/Australia/",
     #                               "T52LFK")
-    granules = search_s2_tiles("/data/selene/ucfajlg/fcc_sentinel2/Colombia/",
-                                   "T18NZL")
+    #granules = search_s2_tiles("/data/selene/ucfajlg/fcc_sentinel2/Colombia/",
+    #                               "T18NZL")
 
     files = []
     for k, v in granules.items():
@@ -293,12 +294,14 @@ if __name__ == "__main__":
     lc8_postf = "../test_data/" + \
                     "LC082040322017070101T1-SC20180328085355.tar.gz"
     #observations_lc8 = Observations(lc8_pref, lc8_postf)
-    s2_pref = "/data/selene/ucfajlg/fcc_sentinel2/Portugal/T29TNE/" + \
-        "S2A_MSIL2A_20170614T112111_N0205_R037_T29TNE_20170614T112422.SAFE/"
-    s2_postf = "/data/selene/ucfajlg/fcc_sentinel2/Portugal/T29TNE/" + \
-        "S2A_MSIL2A_20170704T112111_N0205_R037_T29TNE_20170704T112431.SAFE"
+    #s2_pref = "/data/selene/ucfajlg/fcc_sentinel2/Portugal/T29TNE/" + \
+    #    "S2A_MSIL2A_20170614T112111_N0205_R037_T29TNE_20170614T112422.SAFE/"
+    #s2_postf = "/data/selene/ucfajlg/fcc_sentinel2/Portugal/T29TNE/" + \
+    #    "S2A_MSIL2A_20170704T112111_N0205_R037_T29TNE_20170704T112431.SAFE"
+    s2_pref=files[0]
+    s2_postf=files[1]
     fire_imp = FireImpacts(Observations(s2_pref, s2_postf))
     fire_imp.launch_processor()
     
-    fire_imp = FireImpacts(Observations(lc8_pref, lc8_postf))
-    fire_imp.launch_processor()
+    #fire_imp = FireImpacts(Observations(lc8_pref, lc8_postf))
+    #fire_imp.launch_processor()
