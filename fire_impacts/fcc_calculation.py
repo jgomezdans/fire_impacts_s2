@@ -16,7 +16,8 @@ from lc8_reader import LC8File, NoLC8File
 
 from s2_reader import S2File, NoS2File, search_s2_tiles
 
-from utils import reproject_image
+from utils import reproject_image, extract_chunks
+from utils import invert_spectral_mixture_model
 
 
 # Set up logging
@@ -40,7 +41,10 @@ class Observations(object):
             self.rho_post_prefix = Path(post_fire).name.split("-")[0]
             log.info("Spectral setup for Landsat8")
             self.wavelengths = np.array([480., 560., 655., 865., 1610., 2200])
-            self.bu = np.ones_like(self.wavelengths)
+            self.bu = np.array([8.5, 5.4, 4.0, 2.6, 1.1, 3.6])/1000.
+            #self.bu=np.ones_like(self.wavelengths)*0.015
+            self.bu = np.sqrt(self.bu)
+            print(self.bu)
             self.n_bands = len(self.wavelengths)
             self.lk, self.K = self._setup_spectral_mixture_model()
 
@@ -48,10 +52,14 @@ class Observations(object):
             try:
                 self.pre_fire = S2File.get_file_format_version(pre_fire)
                 self.post_fire = S2File.get_file_format_version(post_fire)
+                self.rho_pre_prefix = Path(pre_fire).name.split("_")[2]
+                self.rho_post_prefix = Path(post_fire).name.split("_")[2]
+
                 log.info("Spectral setup for Sentinel2")
                 self.wavelengths = np.array([490., 560., 665., 705, 740., 783,
                                              865., 1610., 2190])
-                self.bu = np.ones_like(self.wavelengths)
+                self.bu = np.ones_like(self.wavelengths)*0.02
+                self.bu = np.sqrt(self.bu)
                 self.n_bands = len(self.wavelengths)
                 self.lk, self.K = self._setup_spectral_mixture_model()
             except NoS2File:
@@ -78,8 +86,8 @@ class Observations(object):
         lmax = 2000.
         ll = self.wavelengths - loff
         llmax = lmax - loff
-        #lk = (2.0 / llmax) * (ll - ll * ll / (2.0 * llmax))
-        lk = 2.0*ll - (ll*ll)/(llmax)
+        lk = (2.0 / llmax) * (ll - ll * ll / (2.0 * llmax))
+        ####lk = 2.0*ll - (ll*ll)/(llmax)
         K = np.array(np.ones([self.n_bands, 3]))
         K[:, 1] = lk.transpose() / np.sqrt(self.bu)
         K[:, 0] = K[:, 0] / np.sqrt(self.bu)
@@ -90,50 +98,10 @@ class Observations(object):
 
 
 class FireImpacts(object):
-    def __init__(self, observations, temp_folder=None, quantise=False):
-        self.pre_fire = LC8File(pre_fire, temp_folder=temp_folder)
-        self.post_fire = LC8File(post_fire, temp_folder=temp_folder)
-
-        self.rho_pre_prefix = Path(pre_fire).name.split("-")[0]
-        self.rho_post_prefix = Path(post_fire).name.split("-")[0]
-
-        assert self.post_fire.acq_time > self.pre_fire.acq_time
-
+    def __init__(self, observations, output_dir=".", quantise=False):
+        self.output_dir = output_dir        
+        self.observations = observations
         self.save_quantised = quantise
-
-        log.info("Spectral setup for Landsat8")
-        self.bu = np.ones(6)
-        self.wavelengths = np.array([480., 560., 655., 865., 1610., 2200])
-        self.n_bands = len(self.wavelengths)
-
-        self.lk, self.K = self._setup_spectral_mixture_model()
-
-    def _setup_spectral_mixture_model(self):
-        """This method sets up the wavelength array for the quadratic soil
-        function, for a given sensor selected in the class creator
-
-        .. note::
-            Needs self.bu, self.n_bands and self.wavelengths defined!
-
-        :return: The (normalised) wavelength values for each band,
-        :math:`\\lambda_{i}` and the :math:`\\mathbf{K}` matrix,
-        required for inversion.
-        """
-        # These numbers have been fitted elsewhere, and should better
-        # be left floating or as an option. However, I can't be bothered
-        # doing that
-        loff = 400.
-        lmax = 2000.
-        ll = self.wavelengths - loff
-        llmax = lmax - loff
-        #lk = (2.0 / llmax) * (ll - ll * ll / (2.0 * llmax))
-        lk = 2.0*ll - (ll*ll)/(llmax)
-        K = np.array(np.ones([self.n_bands, 3]))
-        K[:, 1] = lk.transpose() / np.sqrt(self.bu)
-        K[:, 0] = K[:, 0] / np.sqrt(self.bu)
-
-        return lk, K
-
 
     def launch_processor(self):
         """A method that process the pre- and post image pairs. All this
@@ -146,10 +114,11 @@ class FireImpacts(object):
         gains are very possible, but I haven't explored them here."""
 
 
-        mask = self.pre_fire.mask * self.post_fire.mask
-
-        the_fnames = [self.pre_fire.lc8_files.surface_reflectance.as_posix(),
-                      self.post_fire.lc8_files.surface_reflectance.as_posix()]
+        mask = self.observations.pre_fire.mask * \
+               self.observations.post_fire.mask
+        pre_file = self.observations.pre_fire.surface_reflectance.as_posix()
+        post_file = self.observations.post_fire.surface_reflectance.as_posix()
+        the_fnames = [pre_file, post_file]
         first = True
         chunk = 0
 
@@ -169,14 +138,35 @@ class FireImpacts(object):
                      this_X:(this_X + nx_valid)]
             rho_pre = data[0]*0.0001
             rho_post = data[1]*0.0001
+            
             xfcc, a0, a1, rmse = invert_spectral_mixture_model(rho_pre,
                                                                 rho_post,
-                                                                M, self.lk)
+                                                                M,
+                                                                self.observations.bu,
+                                                                self.observations.lk)
 
 
+            # Some information
+            fcc_pcntiles = np.percentile(xfcc[M], [5, 95])
+            a0_pcntiles = np.percentile(a0[M], [5, 95])
+            a1_pcntiles = np.percentile(a1[M], [5, 95])
+            log.info(f"\t->fcc_mean:{xfcc[M].mean():+.2f}, " +
+                     f"fcc_sigma:{xfcc[M].std():+.2f}, " +
+                     f"5%pcntile:{fcc_pcntiles[0]:+.2f}, " +
+                     f"95%pcntile:{fcc_pcntiles[1]:+.2f}")
+            
+            log.info(f"\t->a0_mean:{a0[M].mean():+.2f}, " +
+                     f"a0_sigma:{a0[M].std():+.2f}, " +
+                     f"5%pcntile:{a0_pcntiles[0]:+.2f}, " +
+                     f"95%pcntile:{a0_pcntiles[1]:+.2f}")            
+            
+            log.info(f"\t->a1_mean:{a1[M].mean():+.2f}, " +
+                     f"a1_sigma:{a1[M].std():+.2f}, " +
+                     f"5%pcntile:{a1_pcntiles[0]:+.2f}, " +
+                     f"95%pcntile:{a1_pcntiles[1]:+.2f}")            
 
             # Block has been processed, dump data to files
-            log.info("Chunk %d done! Now saving to disk..." % chunk)
+            log.info(f"Chunk {chunk} done! Now saving to disk...")
             if self.save_quantised:
                 xfcc = np.where(np.logical_and(xfcc > 1e-3, xfcc <= 1.2),
                                xfcc * 100, 255).astype(np.uint8)
@@ -231,8 +221,12 @@ class FireImpacts(object):
         ``self.ds_burn`` and ``self.ds_fwd`` opened GDAL datasets."""
 
         drv = gdal.GetDriverByName(fmt)
-        output_fname = "%s_%s_fcc.%s" % (self.rho_pre_prefix,
-                                         self.rho_post_prefix, suffix)
+        output_fname = f"{self.output_dir}/" + \
+            f"{self.observations.rho_pre_prefix}_" + \
+                f"{self.observations.rho_post_prefix}_fcc.{suffix}"
+        output_fname = "%s_%s_fcc.%s" % (self.observations.rho_pre_prefix,
+                                         self.observations.rho_post_prefix,
+                                         suffix)
         log.debug(f"Creating output parameters file {output_fname}")
         if self.save_quantised:
             self.ds_params = drv.Create(output_fname, Nx, Ny,
@@ -244,8 +238,9 @@ class FireImpacts(object):
         self.ds_params.SetProjection(projection)
         log.debug("Success!")
         log.debug("Creatingoutput RMSE signal file %s " % output_fname)
-        output_fname = "%s_%s_rmse.%s" % (self.rho_pre_prefix,
-                                          self.rho_post_prefix, suffix)
+        output_fname = f"{self.output_dir}/" + \
+            f"{self.observations.rho_pre_prefix}_" + \
+                f"{self.observations.rho_post_prefix}_rmse.{suffix}"
         self.ds_rmse = drv.Create(output_fname, Nx, Ny,
                                   1, gdal.GDT_Float32,
                                   options=gdal_opts)
@@ -281,8 +276,13 @@ class FireImpacts(object):
         ####self.ds_fwd.SetProjection(projection)
 
 if __name__ == "__main__":
-    granules = search_s2_tiles("/data/selene/ucfajlg/fcc_sentinel2/Alberta/",
-                                   "T12VVH")
+    #granules = search_s2_tiles("/data/selene/ucfajlg/fcc_sentinel2/Alberta/",
+    #                               "T12VVH")
+    #granules = search_s2_tiles("/data/selene/ucfajlg/fcc_sentinel2/Australia/",
+    #                               "T52LFK")
+    granules = search_s2_tiles("/data/selene/ucfajlg/fcc_sentinel2/Colombia/",
+                                   "T18NZL")
+
     files = []
     for k, v in granules.items():
         files.append(v.as_posix())
@@ -292,4 +292,13 @@ if __name__ == "__main__":
                   "LC082040322017061501T1-SC20180328085351.tar.gz"
     lc8_postf = "../test_data/" + \
                     "LC082040322017070101T1-SC20180328085355.tar.gz"
-    observations_lc8 = Observations(lc8_pref, lc8_postf)
+    #observations_lc8 = Observations(lc8_pref, lc8_postf)
+    s2_pref = "/data/selene/ucfajlg/fcc_sentinel2/Portugal/T29TNE/" + \
+        "S2A_MSIL2A_20170614T112111_N0205_R037_T29TNE_20170614T112422.SAFE/"
+    s2_postf = "/data/selene/ucfajlg/fcc_sentinel2/Portugal/T29TNE/" + \
+        "S2A_MSIL2A_20170704T112111_N0205_R037_T29TNE_20170704T112431.SAFE"
+    fire_imp = FireImpacts(Observations(s2_pref, s2_postf))
+    fire_imp.launch_processor()
+    
+    fire_imp = FireImpacts(Observations(lc8_pref, lc8_postf))
+    fire_imp.launch_processor()

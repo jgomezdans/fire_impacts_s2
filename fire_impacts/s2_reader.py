@@ -25,6 +25,7 @@ class NoS2File(IOError):
 
 S2_BANDS = ["B02", "B03", "B04", "B05", "B06", "B07", "B8A", "B11", "B12"]
 
+    
 
 def search_s2_tiles(s2_path, tile):
     s2_path = Path(s2_path)
@@ -90,7 +91,7 @@ class S2FileVintageFormat(object):
                       separate=True)
         log.debug("Created VRT with surface reflectance files")
         log.info(f"Pre-processed files for {self.granule_path.as_posix()}")
-        self.surf_reflectance = surf_reflectance_output
+        self.surface_reflectance = surf_reflectance_output
 
     def interpret_qa(self, scene_class):
         g = gdal.Open(scene_class.as_posix())
@@ -105,7 +106,7 @@ class S2FileNewFormat(object):
             raise NoS2File
         log.debug("Dealing with S2 New format file")
 
-        self.granule_path = Path(granule)
+        self.granule_path = Path(granule_path)
         if not self.granule_path.exists():
             raise IOError(f"{self.granule_path.name} does not exist!")
         self.acq_time = datetime.datetime.strptime(
@@ -147,12 +148,12 @@ class S2FileNewFormat(object):
                       separate=True)
         log.debug("Created VRT with surface reflectance files")
         log.info(f"Pre-processed files for {self.granule_path.as_posix()}")
-        self.surf_reflectance = surf_reflectance_output
+        self.surface_reflectance = surf_reflectance_output
 
     def interpret_qa(self, scene_class):
         g = gdal.Open(scene_class.as_posix())
         scl = g.ReadAsArray()
-        mask = np.in1d(scl, np.array([4, 5, 6])).reshape(scl.shape)
+        mask = np.in1d(scl, np.array([2, 4, 5, 6, 7])).reshape(scl.shape)
         return mask
 
 

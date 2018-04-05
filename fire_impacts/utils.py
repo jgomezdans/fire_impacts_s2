@@ -6,7 +6,7 @@ import logging
 
 import gdal
 
-from numba import jit
+from numba import jit, prange
 
 import numpy as np
 
@@ -57,7 +57,7 @@ def extract_chunks(the_files, the_bands=None):
     ds_config['nb'] = g.RasterCount
     ds_config['geoT'] = geoT
     ds_config['proj'] = proj
-    block_size = [block_size[0]*10, block_size[1]*10]
+    block_size = [block_size[0]*20, block_size[1]*20]
     log.info("Blocksize is (%d,%d)" % (block_size[0], block_size[1]))
     #  block_size = [ 256, 256 ]
     #  store these numbers in variables that may change later
@@ -106,8 +106,8 @@ def extract_chunks(the_files, the_bands=None):
                    data_in)
 
 
-@jit(nopython=True)
-def invert_spectral_mixture_model(rho_pre, rho_post, mask, w):
+@jit(nopython=True, parallel=True)
+def invert_spectral_mixture_model(rho_pre, rho_post, mask, bu, w):
     """A method to invert the spectral mixture model using pre and
     post fire reflectances with the same acquisition geometry.
 
@@ -118,21 +118,22 @@ def invert_spectral_mixture_model(rho_pre, rho_post, mask, w):
     a1 = np.zeros((ny, nx), dtype=np.float32)
     rmse = np.zeros((ny, nx), dtype=np.float32)
 
-    k = np.ones((n_bands, 3))
-    k[:, 1] = w
-    for i in range(ny):
-        for j in range(nx):
+    for i in prange(ny):
+        for j in prange(nx):
             if mask[i, j]:
-                y = rho_post[:, i, j] - rho_pre[:, i, j]
-                k[:, 2] = rho_pre[:, i, j]
+                k = np.ones((n_bands, 3))
+                k[:, 0] = k[:, 0]/bu
+                k[:, 1] = w/bu
+                k[:, 2] = (rho_pre[:, i, j])/bu
+                y = (rho_post[:, i, j] - rho_pre[:, i, j])/bu
                 # system of equations (K*x = y)
-                if np.linalg.cond(k) < 1e6:
+                if np.linalg.cond(k) < 1e3:
                     sP, residual, rank, singular_vals = np.linalg.lstsq(
                         k, y, rcond=-1)
                     fcc[i, j] = -sP[2]
                     a0[i, j] = sP[0] / fcc[i, j]
                     a1[i, j] = sP[1] / fcc[i, j]
-                    s_burn = a0[i, j] + W * a1[i, j]
+                    s_burn = a0[i, j] + w * a1[i, j]
                     sFWD = rho_pre[:, i, j] * (1. - fcc[i, j]) + \
                         fcc[i, j] * s_burn
                     rmse[i, j] = (sFWD - rho_post[:, i, j]).std()

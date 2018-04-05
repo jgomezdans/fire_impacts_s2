@@ -86,7 +86,7 @@ class LC8File(object):
         mask3 = np.in1d(qa, np.array(
                 [2, 66, 130, 194, 32, 96, 100, 160, 164, 224, 228])).reshape(
                     qa.shape)
-        return mask1 * mask2 * mask3
+        return mask1 * mask2# * mask3
 
     def _uncompress_to_folder(self, archive, target_folder,
                               reproject_to_master):
@@ -125,6 +125,7 @@ class LC8File(object):
                 aot_qa = the_file
         log.debug("All files found!")
         surf_reflectance_output = target_folder/"LC8_surf_refl.vrt"
+        print(sorted(surf_reflectance))
         gdal.BuildVRT(surf_reflectance_output.as_posix(),
                       sorted(surf_reflectance),
                       resolution="highest", resampleAlg="near",
