@@ -49,7 +49,7 @@ class LC8File(object):
         if not lc8_file.exists():
             raise IOError(f"{lc8_file.name} doesn't exist")
         if not lc8_file.match("*LC08*"):
-            raise NoLC8File(lc8_file)
+            raise NoLC8File(lc8_file.name) 
         if temp_folder is None:
             log.info(f"Persistently uncompressing {lc8_file}")
             target_folder = (lc8_file.parent/(lc8_file.stem.split(".")[0]))
@@ -141,15 +141,15 @@ class LC8File(object):
 
 
 if __name__ == "__main__":
-    #lc8_pref = "./test_data/" + \
-                  #"LC082040322017061501T1-SC20180328085351.tar.gz"
-    #lc8_postf = "./test_data/" + \
-                    #"LC082040322017070101T1-SC20180328085355.tar.gz"
+    lc8_pref = "../test_data/" + \
+                  "LC082040322017061501T1-SC20180328085351.tar.gz"
+    lc8_postf = "../test_data/" + \
+                    "LC082040322017070101T1-SC20180328085355.tar.gz"
 
-    lc8_pref = "/home/ucfajlg/temp/" + \
-                "LC082040322017061501T1-SC20180328085351.tar.gz"
-    lc8_postf = "/home/ucfajlg/temp/" + \
-                "LC082040322017070101T1-SC20180328085355.tar.gz"
+    #lc8_pref = "/home/ucfajlg/temp/" + \
+    #            "LC082040322017061501T1-SC20180328085351.tar.gz"
+    #lc8_postf = "/home/ucfajlg/temp/" + \
+    #            "LC082040322017070101T1-SC20180328085355.tar.gz"
 
     lc8_pre = LC8File(lc8_pref, temp_folder=None)
     lc8_post = LC8File(lc8_postf, temp_folder=None,
