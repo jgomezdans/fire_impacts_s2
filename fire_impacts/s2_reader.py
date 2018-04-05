@@ -83,7 +83,7 @@ class S2FileVintageFormat(object):
         else:
             log.debug("Found all surface reflectance files")
 
-        surf_reflectance_output = self.granule_path/"LC8_surf_refl.vrt"
+        surf_reflectance_output = self.granule_path/"S2_surf_refl.vrt"
         gdal.BuildVRT(surf_reflectance_output.as_posix(),
                       sorted(surf_refl),
                       resolution="highest", resampleAlg="near",
@@ -140,7 +140,7 @@ class S2FileNewFormat(object):
         else:
             log.debug("Found all surface reflectance files")
 
-        surf_reflectance_output = self.granule_path/"LC8_surf_refl.vrt"
+        surf_reflectance_output = self.granule_path/"S2_surf_refl.vrt"
         gdal.BuildVRT(surf_reflectance_output.as_posix(),
                       sorted(surf_refl),
                       resolution="highest", resampleAlg="near",
