@@ -30,21 +30,18 @@ log = logging.getLogger(__name__)
 
 class Observations(object):
     def __init__(self, pre_fire, post_fire, temp_folder=None):
-        
+
         try:
             self.pre_fire = LC8File(pre_fire, temp_folder=temp_folder)
-            self.post_fire = LC8File(post_fire, 
+            self.post_fire = LC8File(post_fire,
                                      master_file=
                                      self.pre_fire.surface_reflectance.as_posix(),
                                      temp_folder=temp_folder)
-            self.rho_pre_prefix = Path(pre_fire).name.split("-")[0]
-            self.rho_post_prefix = Path(post_fire).name.split("-")[0]
             log.info("Spectral setup for Landsat8")
+            self.sensor = "LC8"
             self.wavelengths = np.array([480., 560., 655., 865., 1610., 2200])
             self.bu = np.array([8.5, 5.4, 4.0, 2.6, 1.1, 3.6])/1000.
-            #self.bu=np.ones_like(self.wavelengths)*0.015
             self.bu = np.sqrt(self.bu)
-            print(self.bu)
             self.n_bands = len(self.wavelengths)
             self.lk, self.K = self._setup_spectral_mixture_model()
 
@@ -52,10 +49,9 @@ class Observations(object):
             try:
                 self.pre_fire = S2File.get_file_format_version(pre_fire)
                 self.post_fire = S2File.get_file_format_version(post_fire)
-                self.rho_pre_prefix = Path(pre_fire).name.split("_")[2]
-                self.rho_post_prefix = Path(post_fire).name.split("_")[2]
 
                 log.info("Spectral setup for Sentinel2")
+                self.sensor = "S2"
                 self.wavelengths = np.array([490., 560., 665., 705, 740., 783,
                                              865., 1610., 2190])
                 self.bu = np.ones_like(self.wavelengths)*0.02
@@ -65,8 +61,9 @@ class Observations(object):
             except NoS2File:
                 raise IOError("File wasn't either LC8 or S2/Sen2Cor")
 
+        self.rho_pre_prefix = self.pre_fire.acq_time
+        self.rho_post_prefix = self.post_fire.acq_time
         assert self.post_fire.acq_time > self.pre_fire.acq_time
-
 
     def _setup_spectral_mixture_model(self):
         """This method sets up the wavelength array for the quadratic soil
@@ -99,7 +96,7 @@ class Observations(object):
 
 class FireImpacts(object):
     def __init__(self, observations, output_dir=".", quantise=False):
-        self.output_dir = output_dir        
+        self.output_dir = output_dir
         self.observations = observations
         self.save_quantised = quantise
 
@@ -113,9 +110,8 @@ class FireImpacts(object):
         single Landsat tile where all pixels are considered. Efficiency
         gains are very possible, but I haven't explored them here."""
 
-
         mask = self.observations.pre_fire.mask * \
-               self.observations.post_fire.mask
+              self.observations.post_fire.mask
         pre_file = self.observations.pre_fire.surface_reflectance.as_posix()
         post_file = self.observations.post_fire.surface_reflectance.as_posix()
         the_fnames = [pre_file, post_file]
@@ -130,20 +126,20 @@ class FireImpacts(object):
                 first = False
             chunk += 1
             log.info("Doing Chunk %d..." % chunk)
-            if np.sum( mask[this_Y:(this_Y + ny_valid),
-                            this_X:(this_X + nx_valid)] ) == 0:
+            if np.sum(mask[this_Y:(this_Y + ny_valid),
+                      this_X:(this_X + nx_valid)]) == 0:
                 log.info("Chunk %d:  All pixels masked..." % chunk)
                 continue
             M = mask[this_Y:(this_Y + ny_valid),
                      this_X:(this_X + nx_valid)]
             rho_pre = data[0]*0.0001
             rho_post = data[1]*0.0001
-            
+
             xfcc, a0, a1, rmse = invert_spectral_mixture_model(rho_pre,
-                                                                rho_post,
-                                                                M,
-                                                                self.observations.bu,
-                                                                self.observations.lk)
+                                                               rho_post,
+                                                               M,
+                                                               self.observations.bu,
+                                                               self.observations.lk)
 
 
             # Some information
@@ -154,16 +150,16 @@ class FireImpacts(object):
                      f"fcc_sigma:{xfcc[M].std():+.2f}, " +
                      f"5%pcntile:{fcc_pcntiles[0]:+.2f}, " +
                      f"95%pcntile:{fcc_pcntiles[1]:+.2f}")
-            
+
             log.info(f"\t->a0_mean:{a0[M].mean():+.2f}, " +
                      f"a0_sigma:{a0[M].std():+.2f}, " +
                      f"5%pcntile:{a0_pcntiles[0]:+.2f}, " +
-                     f"95%pcntile:{a0_pcntiles[1]:+.2f}")            
-            
+                     f"95%pcntile:{a0_pcntiles[1]:+.2f}")
+
             log.info(f"\t->a1_mean:{a1[M].mean():+.2f}, " +
                      f"a1_sigma:{a1[M].std():+.2f}, " +
                      f"5%pcntile:{a1_pcntiles[0]:+.2f}, " +
-                     f"95%pcntile:{a1_pcntiles[1]:+.2f}")            
+                     f"95%pcntile:{a1_pcntiles[1]:+.2f}")
 
             # Block has been processed, dump data to files
             log.info(f"Chunk {chunk} done! Now saving to disk...")
@@ -183,32 +179,14 @@ class FireImpacts(object):
                 a1, xoff=this_X, yoff=this_Y)
             self.ds_rmse.GetRasterBand(1).WriteArray(
                 rmse, xoff=this_X, yoff=this_Y)
-
-            #####self.ds_unc.GetRasterBand(1).WriteArray(
-                #####fccunc, xoff=this_X,
-                #####yoff=this_Y)
-            #####self.ds_unc.GetRasterBand(2).WriteArray(a0unc, xoff=this_X,
-                                                    #####yoff=this_Y)
-            #####self.ds_unc.GetRasterBand(3).WriteArray(a1unc, xoff=this_X,
-                                                    #####yoff=this_Y)
-            #####self.ds_unc.GetRasterBand(4).WriteArray(rmse, xoff=this_X,
-                                                    #####yoff=this_Y)
-            #####[self.ds_burn.GetRasterBand(i + 1).WriteArray(burn[i, :, :],
-                                                          #####xoff=this_X,
-                                                          #####yoff=this_Y)
-             #####for i in xrange(self.n_bands)]
-            #####[self.ds_fwd.GetRasterBand(i + 1).WriteArray(fwd[i, :, :],
-                                                         #####xoff=this_X,
-                                                         #####yoff=this_Y)
-             #####for i in xrange(self.n_bands)]
             log.info("Burp!")
         self.ds_burn = None
         self.ds_fwd = None
         self.ds_params = None
 
     def create_output(self, projection, geotransform, Nx, Ny, fmt="GTiff",
-                        suffix="tif",
-                        gdal_opts=["COMPRESS=DEFLATE", "PREDICTOR=2", "TILED=YES",
+                      suffix="tif",
+                      gdal_opts=["COMPRESS=DEFLATE", "PREDICTOR=2", "TILED=YES",
                                  "INTERLEAVE=BAND",  "BIGTIFF=YES"]):
         """A method to create the output from the inversion code. By default,
         uses the GeoTIFF format, although this can be changed by changing
@@ -222,7 +200,7 @@ class FireImpacts(object):
 
         drv = gdal.GetDriverByName(fmt)
         output_fname = f"{self.output_dir}/" + \
-            f"{self.observations.rho_pre_prefix}_" + \
+            f"{self.sensor}_{self.observations.rho_pre_prefix}_" + \
                 f"{self.observations.rho_post_prefix}_fcc.{suffix}"
         output_fname = "%s_%s_fcc.%s" % (self.observations.rho_pre_prefix,
                                          self.observations.rho_post_prefix,
@@ -237,11 +215,11 @@ class FireImpacts(object):
         self.ds_params.SetGeoTransform(geotransform)
         self.ds_params.SetProjection(projection)
         log.debug("Success!")
-        
+
         output_fname = f"{self.output_dir}/" + \
-            f"{self.observations.rho_pre_prefix}_" + \
+            f"{self.sensor}_{self.observations.rho_pre_prefix}_" + \
                 f"{self.observations.rho_post_prefix}_rmse.{suffix}"
-        log.debug("Creatingoutput RMSE signal file %s " % output_fname)
+        log.debug("Creating output RMSE signal file %s " % output_fname)
         self.ds_rmse = drv.Create(output_fname, Nx, Ny,
                                   1, gdal.GDT_Float32,
                                   options=gdal_opts)
@@ -249,32 +227,6 @@ class FireImpacts(object):
         self.ds_rmse.SetProjection(projection)
         log.debug("Success!")
         log.info("Output files successfully created")
-        ####logger.info("Created output burn signal file %s " % output_fname)
-        ####output_fname = "%s_%s_burn.%s" % (self.rho_pre_prefix,
-                                            ####self.rho_post_prefix, suffix)
-        ####self.ds_burn = drv.Create(output_fname, Nx, Ny,
-                                    ####self.n_bands, gdal.GDT_Float32,
-                                    ####options=gdal_opts)
-        ####self.ds_burn.SetGeoTransform(geotransform)
-        ####self.ds_burn.SetProjection(projection)
-
-        ####logger.info("Created output uncertainties file %s " % output_fname)
-        ####output_fname = "%s_%s_uncertainties.%s" % (self.rho_pre_prefix,
-                                                    ####self.rho_post_prefix,
-                                                    ####suffix)
-        ####self.ds_unc = drv.Create(output_fname, Nx, Ny,
-                                    ####4, gdal.GDT_Float32, options=gdal_opts)
-        ####self.ds_unc.SetGeoTransform(geotransform)
-        ####self.ds_unc.SetProjection(projection)
-
-        ####output_fname = "%s_%s_fwd.%s" % (self.rho_pre_prefix,
-                                            ####self.rho_post_prefix, suffix)
-        ####logger.info("Created output fwd model file %s " % output_fname)
-        ####self.ds_fwd = drv.Create(output_fname, Nx, Ny,
-                                    ####self.n_bands, gdal.GDT_Float32,
-                                    ####options=gdal_opts)
-        ####self.ds_fwd.SetGeoTransform(geotransform)
-        ####self.ds_fwd.SetProjection(projection)
 
 if __name__ == "__main__":
     granules = search_s2_tiles("/data/selene/ucfajlg/fcc_sentinel2/Alberta/",
@@ -302,6 +254,6 @@ if __name__ == "__main__":
     s2_postf=files[1]
     fire_imp = FireImpacts(Observations(s2_pref, s2_postf))
     fire_imp.launch_processor()
-    
+
     #fire_imp = FireImpacts(Observations(lc8_pref, lc8_postf))
     #fire_imp.launch_processor()
