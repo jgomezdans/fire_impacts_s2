@@ -12,12 +12,12 @@ from pathlib import Path
 
 from collections import namedtuple
 
-from lc8_reader import LC8File, NoLC8File
+from .lc8_reader import LC8File, NoLC8File
 
-from s2_reader import S2File, NoS2File, search_s2_tiles
+from .s2_reader import S2File, NoS2File, search_s2_tiles
 
-from utils import reproject_image, extract_chunks
-from utils import invert_spectral_mixture_model
+from .utils import reproject_image, extract_chunks
+from .utils import invert_spectral_mixture_model
 
 
 # Set up logging
