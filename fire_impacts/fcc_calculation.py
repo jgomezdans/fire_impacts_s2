@@ -61,8 +61,8 @@ class Observations(object):
             except NoS2File:
                 raise IOError("File wasn't either LC8 or S2/Sen2Cor")
 
-        self.rho_pre_prefix = self.pre_fire.acq_time
-        self.rho_post_prefix = self.post_fire.acq_time
+        self.rho_pre_prefix = self.pre_fire.acq_time.strftime("%Y%m%d")
+        self.rho_post_prefix = self.post_fire.acq_time.strftime("%Y%m%d")
         assert self.post_fire.acq_time > self.pre_fire.acq_time
 
     def _setup_spectral_mixture_model(self):
