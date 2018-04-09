@@ -202,9 +202,6 @@ class FireImpacts(object):
         output_fname = f"{self.output_dir}/" + \
             f"{self.observations.sensor}_{self.observations.rho_pre_prefix}_" + \
                 f"{self.observations.rho_post_prefix}_fcc.{suffix}"
-        output_fname = "%s_%s_fcc.%s" % (self.observations.rho_pre_prefix,
-                                         self.observations.rho_post_prefix,
-                                         suffix)
         log.debug(f"Creating output parameters file {output_fname}")
         if self.save_quantised:
             self.ds_params = drv.Create(output_fname, Nx, Ny,
