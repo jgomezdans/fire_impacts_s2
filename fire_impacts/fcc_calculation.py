@@ -200,7 +200,7 @@ class FireImpacts(object):
 
         drv = gdal.GetDriverByName(fmt)
         output_fname = f"{self.output_dir}/" + \
-            f"{self.sensor}_{self.observations.rho_pre_prefix}_" + \
+            f"{self.observations.sensor}_{self.observations.rho_pre_prefix}_" + \
                 f"{self.observations.rho_post_prefix}_fcc.{suffix}"
         output_fname = "%s_%s_fcc.%s" % (self.observations.rho_pre_prefix,
                                          self.observations.rho_post_prefix,
@@ -217,7 +217,7 @@ class FireImpacts(object):
         log.debug("Success!")
 
         output_fname = f"{self.output_dir}/" + \
-            f"{self.sensor}_{self.observations.rho_pre_prefix}_" + \
+            f"{self.observations.sensor}_{self.observations.rho_pre_prefix}_" + \
                 f"{self.observations.rho_post_prefix}_rmse.{suffix}"
         log.debug("Creating output RMSE signal file %s " % output_fname)
         self.ds_rmse = drv.Create(output_fname, Nx, Ny,
