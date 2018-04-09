@@ -15,7 +15,8 @@ from pathlib import Path
 
 from collections import namedtuple
 
-from utils import reproject_image
+from .utils import reproject_image
+
 # Set up logging
 logging.basicConfig(level=logging.DEBUG,
                     format="%(asctime)s - %(name)s - %(module)s." +
