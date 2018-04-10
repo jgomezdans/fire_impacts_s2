@@ -153,7 +153,7 @@ class S2FileNewFormat(object):
     def interpret_qa(self, scene_class):
         g = gdal.Open(scene_class.as_posix())
         scl = g.ReadAsArray()
-        mask = np.in1d(scl, np.array([2, 4, 5, 6, 7])).reshape(scl.shape)
+        mask = np.in1d(scl, np.array([2, 4, 5, 6, 7, 11])).reshape(scl.shape)
         return mask
 
 
