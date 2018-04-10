@@ -126,12 +126,12 @@ class FireImpacts(object):
                 first = False
             chunk += 1
             log.info("Doing Chunk %d..." % chunk)
-            if np.sum(mask[this_Y:(this_Y + ny_valid),
-                      this_X:(this_X + nx_valid)]) == 0:
-                log.info("Chunk %d:  All pixels masked..." % chunk)
-                continue
             M = mask[this_Y:(this_Y + ny_valid),
                      this_X:(this_X + nx_valid)]
+            if M.sum() == 0:
+                log.info("Chunk %d:  All pixels masked..." % chunk)
+                continue
+
             rho_pre = data[0]*0.0001
             rho_post = data[1]*0.0001
 
@@ -146,6 +146,7 @@ class FireImpacts(object):
             fcc_pcntiles = np.percentile(xfcc[M], [5, 95])
             a0_pcntiles = np.percentile(a0[M], [5, 95])
             a1_pcntiles = np.percentile(a1[M], [5, 95])
+            log.info(f"\t->Total pixels:{M.sum()}")
             log.info(f"\t->fcc_mean:{xfcc[M].mean():+.2f}, " +
                      f"fcc_sigma:{xfcc[M].std():+.2f}, " +
                      f"5%pcntile:{fcc_pcntiles[0]:+.2f}, " +
@@ -200,8 +201,10 @@ class FireImpacts(object):
 
         drv = gdal.GetDriverByName(fmt)
         output_fname = f"{self.output_dir}/" + \
-            f"{self.observations.sensor}_{self.observations.rho_pre_prefix}_" + \
-                f"{self.observations.rho_post_prefix}_fcc.{suffix}"
+            f"{self.observations.sensor}_" + \
+            f"{self.observations.pre_fire.pathrow}_" + \
+            f"{self.observations.rho_pre_prefix}_" + \
+            f"{self.observations.rho_post_prefix}_fcc.{suffix}"
         log.debug(f"Creating output parameters file {output_fname}")
         if self.save_quantised:
             self.ds_params = drv.Create(output_fname, Nx, Ny,
@@ -214,8 +217,11 @@ class FireImpacts(object):
         log.debug("Success!")
 
         output_fname = f"{self.output_dir}/" + \
-            f"{self.observations.sensor}_{self.observations.rho_pre_prefix}_" + \
-                f"{self.observations.rho_post_prefix}_rmse.{suffix}"
+            f"{self.observations.sensor}_" + \
+            f"{self.observations.pre_fire.pathrow}_" + \
+            f"{self.observations.rho_pre_prefix}_" + \
+            f"{self.observations.rho_post_prefix}_rmse.{suffix}"
+
         log.debug("Creating output RMSE signal file %s " % output_fname)
         self.ds_rmse = drv.Create(output_fname, Nx, Ny,
                                   1, gdal.GDT_Float32,
