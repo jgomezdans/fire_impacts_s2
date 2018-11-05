@@ -157,6 +157,67 @@ class S2FileNewFormat(object):
         return mask
 
 
+class S2FileSIAC(object):
+    def __init__(self, granule_path):
+        if not self.granule_path.exists():
+            raise IOError(f"{self.granule_path.name} does not exist!")
+
+        clouds = [ f for f in granule_path.glob("**/cloud.tif")]
+        if len(f) != 1:
+            raise IOError("No SIAC file!")
+        log.debug("Dealing with S2 SIAC file")
+
+        self.granule_path = Path(granule_path)
+        self.acq_time = datetime.datetime.strptime(
+            granule_path[:granule_path.find(".SAFE")].split(
+                "/")[-1].split("_")[2], "%Y%m%dT%H%M%S")
+        self.pathrow = granule_path[:granule_path.find(".SAFE")].split(
+                        "/")[-1].split("_")[-2]
+
+        log.info(f"S2 tile code is {self.pathrow}")
+        log.info(f"S2 tile acquisition date: {self.acq_time}")
+#        for fich in self.granule_path.glob("**/*_SCL_20m.jp2"):
+#            scene_class = fich
+
+#        log.debug(f"Found scene class file {scene_class.name}")
+        self.mask = self.interpret_qa(scene_class)
+        log.info(f"Number of valid pixels: {self.mask.sum()}" +
+                 f"({100.*self.mask.sum()/np.prod(self.mask.shape):g}%)")
+        img_path = scene_class.parent
+        surf_refl = [None for i in range(len(S2_BANDS))]
+        for fich in img_path.glob("*_20m.jp2"):
+            if not ((fich.as_posix().find("AOT") >= 0) or
+                    (fich.as_posix().find("WVP") >= 0) or
+                    (fich.as_posix().find("VIS") >= 0) or
+                    (fich.as_posix().find("SCL") >= 0) or
+                    (fich.as_posix().find("TCI") >= 0)):
+                band = S2_BANDS.index(fich.name.split("_")[-2])
+                log.debug(f"Band #{S2_BANDS[band]} -> {fich.name}")
+                surf_refl[band] = fich.as_posix()
+
+        if any(v is None for v in surf_refl):
+            raise IOError("Not all bands were found!")
+        else:
+            log.debug("Found all surface reflectance files")
+
+        surf_reflectance_output = self.granule_path/"S2_surf_refl.vrt"
+        gdal.BuildVRT(surf_reflectance_output.as_posix(),
+                      sorted(surf_refl),
+                      resolution="highest", resampleAlg="near",
+                      separate=True)
+        log.debug("Created VRT with surface reflectance files")
+        log.info(f"Pre-processed files for {self.granule_path.as_posix()}")
+        self.surface_reflectance = surf_reflectance_output
+
+    def interpret_qa(self, scene_class):
+        g = gdal.Open(scene_class.as_posix())
+        scl = g.ReadAsArray()
+        mask = np.in1d(scl, np.array([2, 4, 5, 6, 7, 11])).reshape(scl.shape)
+        return mask
+
+
+
+
 if __name__ == "__main__":
     granules = search_s2_tiles("/data/selene/ucfajlg/fcc_sentinel2/Alberta/",
                                "T11VNC")
