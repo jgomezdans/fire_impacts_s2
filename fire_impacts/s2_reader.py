@@ -23,17 +23,17 @@ class NoS2File(IOError):
         self.args = arg
 
 
-S2_BANDS = ["B02", "B03", "B04", "B05", "B06", "B07", "B8A", "B11", "B12"]
+S2_BANDS = ["B02", "B03", "B04", "B05", "B06", "B07", "B08", "B11", "B12"]
 
     
 
 def search_s2_tiles(s2_path, tile):
     s2_path = Path(s2_path)
     granules={}
-    for fich in s2_path.glob(f"**/*{tile}*"):
+    for fich in s2_path.glob(f"**/*{tile}*.SAFE"):
         if fich.is_dir():
             granules[datetime.datetime.strptime(
-                                                fich.name.split("_")[-4],
+                                                fich.name.split("_")[2],
                                                 "%Y%m%dT%H%M%S")] = fich
     return granules
 
@@ -159,20 +159,22 @@ class S2FileNewFormat(object):
 
 class S2FileSIAC(object):
     def __init__(self, granule_path):
+        self.granule_path = granule_path
         if not self.granule_path.exists():
             raise IOError(f"{self.granule_path.name} does not exist!")
 
         clouds = [ f for f in granule_path.glob("**/cloud.tif")]
-        if len(f) != 1:
+        if len(clouds) != 1:
             raise IOError("No SIAC file!")
         log.debug("Dealing with S2 SIAC file")
-
+        cloud_mask = clouds[0] # This should always work
         self.granule_path = Path(granule_path)
+        #self.acq_time = datetime.datetime.strptime(
+        #    granule_path[:granule_path.find(".SAFE")].split(
+        #        "/")[-1].split("_")[2], "%Y%m%dT%H%M%S")
         self.acq_time = datetime.datetime.strptime(
-            granule_path[:granule_path.find(".SAFE")].split(
-                "/")[-1].split("_")[2], "%Y%m%dT%H%M%S")
-        self.pathrow = granule_path[:granule_path.find(".SAFE")].split(
-                        "/")[-1].split("_")[-2]
+            self.granule_path.name.split("_")[2], "%Y%m%dT%H%M%S")
+        self.pathrow = self.granule_path.name.split("_")[5]
 
         log.info(f"S2 tile code is {self.pathrow}")
         log.info(f"S2 tile acquisition date: {self.acq_time}")
@@ -180,21 +182,18 @@ class S2FileSIAC(object):
 #            scene_class = fich
 
 #        log.debug(f"Found scene class file {scene_class.name}")
-        self.mask = self.interpret_qa(scene_class)
+        self.mask = self.interpret_qa(cloud_mask)
         log.info(f"Number of valid pixels: {self.mask.sum()}" +
                  f"({100.*self.mask.sum()/np.prod(self.mask.shape):g}%)")
-        img_path = scene_class.parent
+        img_path = cloud_mask.parent/Path("IMG_DATA")
         surf_refl = [None for i in range(len(S2_BANDS))]
-        for fich in img_path.glob("*_20m.jp2"):
-            if not ((fich.as_posix().find("AOT") >= 0) or
-                    (fich.as_posix().find("WVP") >= 0) or
-                    (fich.as_posix().find("VIS") >= 0) or
-                    (fich.as_posix().find("SCL") >= 0) or
-                    (fich.as_posix().find("TCI") >= 0)):
-                band = S2_BANDS.index(fich.name.split("_")[-2])
+        for fich in img_path.glob("*_sur.tif"):
+            print(fich.name)
+            the_band = fich.name.split("_")[-2]
+            if the_band in S2_BANDS:
+                band = S2_BANDS.index(the_band)
                 log.debug(f"Band #{S2_BANDS[band]} -> {fich.name}")
                 surf_refl[band] = fich.as_posix()
-
         if any(v is None for v in surf_refl):
             raise IOError("Not all bands were found!")
         else:
@@ -209,29 +208,31 @@ class S2FileSIAC(object):
         log.info(f"Pre-processed files for {self.granule_path.as_posix()}")
         self.surface_reflectance = surf_reflectance_output
 
-    def interpret_qa(self, scene_class):
+    def interpret_qa(self, scene_class, threshold=20):
         g = gdal.Open(scene_class.as_posix())
-        scl = g.ReadAsArray()
-        mask = np.in1d(scl, np.array([2, 4, 5, 6, 7, 11])).reshape(scl.shape)
+        cld = g.ReadAsArray()
+        mask = cld <= threshold
         return mask
 
 
 
 
 if __name__ == "__main__":
-    granules = search_s2_tiles("/data/selene/ucfajlg/fcc_sentinel2/Alberta/",
-                               "T11VNC")
-    files = []
-    for k, v in granules.items():
-        files.append(v.as_posix())
-    #    s2_file0 = S2FileVintageFormat(files[0])
-    #   s2_file1 = S2FileVintageFormat(files[1])
+    ###granules = search_s2_tiles("/data/selene/ucfajlg/fcc_sentinel2/Alberta/",
+                               ###"T11VNC")
+    ###files = []
+    ###for k, v in granules.items():
+        ###files.append(v.as_posix())
+    ####    s2_file0 = S2FileVintageFormat(files[0])
+    ####   s2_file1 = S2FileVintageFormat(files[1])
 
-    granule = "/data/selene/ucfajlg/fcc_sentinel2/Portugal/T29TPE/" + \
-        "S2A_MSIL2A_20170704T112111_N0205_R037_T29TPE_20170704T112431.SAFE/" +\
-        "GRANULE/L2A_T29TPE_A010616_20170704T112431"
-    #   s2_new = S2FileNewFormat(granule)
+    ###granule = "/data/selene/ucfajlg/fcc_sentinel2/Portugal/T29TPE/" + \
+        ###"S2A_MSIL2A_20170704T112111_N0205_R037_T29TPE_20170704T112431.SAFE/" +\
+        ###"GRANULE/L2A_T29TPE_A010616_20170704T112431"
+    ####   s2_new = S2FileNewFormat(granule)
 
-    s2_file0 = S2File.get_file_format_version(files[0])
-    s2_file1 = S2File.get_file_format_version(files[1])
-    s2_file2 = S2File.get_file_format_version(granule)
+    ###s2_file0 = S2File.get_file_format_version(files[0])
+    ###s2_file1 = S2File.get_file_format_version(files[1])
+    ###s2_file2 = S2File.get_file_format_version(granule)
+    granules = search_s2_tiles("/data/selene/ucfajlg/Chile/", "T18HYF")
+    ff = S2FileSIAC(Path("/data/selene/ucfajlg/Chile/S2A_MSIL1C_20170218T143751_N0204_R096_T18HYF_20170218T145150.SAFE"))
