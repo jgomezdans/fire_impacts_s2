@@ -42,11 +42,14 @@ class S2File(object):
     @staticmethod
     def get_file_format_version(granule):
         granuler = Path(granule)
-        if granuler.match("*USER*"):
-            return S2FileVintageFormat(granule)
+        clouds = [ f for f in granuler.glob("**/cloud.tif")]
+        if len(clouds) != 1:
+            if granuler.match("*USER*"):
+                return S2FileVintageFormat(granule)
+            else:
+                return S2FileNewFormat(granule)
         else:
-            return S2FileNewFormat(granule)
-
+            return S2FileSIAC(granule)
 
 class S2FileVintageFormat(object):
     def __init__(self, granule_path):
@@ -159,6 +162,7 @@ class S2FileNewFormat(object):
 
 class S2FileSIAC(object):
     def __init__(self, granule_path):
+        granule_path = Path(granule_path) 
         self.granule_path = granule_path
         if not self.granule_path.exists():
             raise IOError(f"{self.granule_path.name} does not exist!")
@@ -182,9 +186,6 @@ class S2FileSIAC(object):
 #            scene_class = fich
 
 #        log.debug(f"Found scene class file {scene_class.name}")
-        self.mask = self.interpret_qa(cloud_mask)
-        log.info(f"Number of valid pixels: {self.mask.sum()}" +
-                 f"({100.*self.mask.sum()/np.prod(self.mask.shape):g}%)")
         img_path = cloud_mask.parent/Path("IMG_DATA")
         surf_refl = [None for i in range(len(S2_BANDS))]
         for fich in img_path.glob("*_sur.tif"):
@@ -200,18 +201,34 @@ class S2FileSIAC(object):
             log.debug("Found all surface reflectance files")
 
         surf_reflectance_output = self.granule_path/"S2_surf_refl.vrt"
-        gdal.BuildVRT(surf_reflectance_output.as_posix(),
+        g = gdal.BuildVRT(surf_reflectance_output.as_posix(),
                       sorted(surf_refl),
                       resolution="highest", resampleAlg="near",
                       separate=True)
+        R = gdal.Info(g)
+        ul_text = [r for r in R.split("\n") if r.find("Upper Left") >=0]
+        lr_text = [r for r in R.split("\n") if r.find("Lower Right") >=0]
+        lr_x, lr_y = [float(x.strip(",)")) for x in lr_text[0].split()[3:5]]
+        ul_x, ul_y = [float(x.strip(",)")) for x in ul_text[0].split()[3:5]]
+
+        g = gdal.Warp("", cloud_mask.as_posix(),
+                      format="MEM", xRes=10, yRes=10,
+                      outputBounds=[ul_x, lr_y, lr_x, ul_y])
+        
+        self.mask = self.interpret_qa(g)
+        log.info(f"Number of valid pixels: {self.mask.sum()}" +
+                 f"({100.*self.mask.sum()/np.prod(self.mask.shape):g}%)")
+
+        
         log.debug("Created VRT with surface reflectance files")
         log.info(f"Pre-processed files for {self.granule_path.as_posix()}")
         self.surface_reflectance = surf_reflectance_output
 
-    def interpret_qa(self, scene_class, threshold=20):
-        g = gdal.Open(scene_class.as_posix())
-        cld = g.ReadAsArray()
-        mask = cld <= threshold
+    def interpret_qa(self, cld, threshold=10):
+        #g = gdal.Open(scene_class.as_posix())
+        #cld = g.ReadAsArray()
+        
+        mask = cld.ReadAsArray() <= threshold
         return mask
 
 
