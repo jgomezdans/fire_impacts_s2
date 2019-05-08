@@ -135,9 +135,14 @@ class S2FileNewFormat(object):
                     (fich.as_posix().find("VIS") >= 0) or
                     (fich.as_posix().find("SCL") >= 0) or
                     (fich.as_posix().find("TCI") >= 0)):
-                band = S2_BANDS.index(fich.name.split("_")[-2])
-                log.debug(f"Band #{S2_BANDS[band]} -> {fich.name}")
-                surf_refl[band] = fich.as_posix()
+                if (fich.as_posix().find("B8A") >= 0):
+                    band = S2_BANDS.index("B08")
+                    log.debug(f"Band #{S2_BANDS[band]} -> {fich.name} HACK!")
+                    surf_refl[band] = fich.as_posix()
+                else:
+                    band = S2_BANDS.index(fich.name.split("_")[-2])
+                    log.debug(f"Band #{S2_BANDS[band]} -> {fich.name}")
+                    surf_refl[band] = fich.as_posix()
 
         if any(v is None for v in surf_refl):
             raise IOError("Not all bands were found!")
