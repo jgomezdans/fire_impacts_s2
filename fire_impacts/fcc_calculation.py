@@ -22,7 +22,7 @@ from .utils import invert_spectral_mixture_model
 
 # Set up logging
 logging.basicConfig(level=logging.DEBUG,
-                    format="%(asctime)s - %(name)s - %(module)s." +
+                    format="%(asctime)s - %(module)s." +
                     "%(funcName)s - " +
                     "- %(levelname)s - %(message)s")
 log = logging.getLogger(__name__)
