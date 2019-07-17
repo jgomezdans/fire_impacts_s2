@@ -18,6 +18,7 @@ from .s2_reader import S2File, NoS2File, search_s2_tiles
 
 from .utils import reproject_image, extract_chunks
 from .utils import invert_spectral_mixture_model
+from .utils import invert_spectral_mixture_model_burn_signal
 
 
 # Set up logging
@@ -95,7 +96,15 @@ class Observations(object):
 
 
 class FireImpacts(object):
-    def __init__(self, observations, output_dir=".", quantise=False):
+    def __init__(self, observations, output_dir=".", quantise=False,
+                user_a0=None, user_a1=None):
+        if (user_a0 is not None  and user_a1 is None) or (user_a0 is None and
+            user_a1 is not None):
+            raise ValueError("Either you provide a0 and a1, or I solve for both")
+        if user_a0 is not None and user_a1 is not None:
+            log.info(f"Fixing a0={float(user_a0):f} and a1={float(user_a1):f}")
+        self.user_a0 = user_a0
+        self.user_a1 = user_a1
         self.output_dir = output_dir
         self.observations = observations
         self.save_quantised = quantise
@@ -134,14 +143,22 @@ class FireImpacts(object):
 
             rho_pre = data[0]*0.0001
             rho_post = data[1]*0.0001
-
-            xfcc, a0, a1, rmse = invert_spectral_mixture_model(rho_pre,
+            if self.user_a0 is None or self.user_a1 is None:
+                xfcc, a0, a1, rmse = invert_spectral_mixture_model(rho_pre,
                                                                rho_post,
                                                                M,
                                                                self.observations.bu,
                                                                self.observations.lk)
+            else:
+                rho_burn = self.user_a0 + self.user_a1*self.observations.lk 
+                
+                xfcc, a0, a1, rmse = invert_spectral_mixture_model_burn_signal(
+                    rho_burn, rho_pre, rho_post,
+                                                               M,
+                                                               self.observations.bu,
+                                                               self.observations.lk)
 
-
+            
             # Some information
             fcc_pcntiles = np.percentile(xfcc[M], [5, 95])
             a0_pcntiles = np.percentile(a0[M], [5, 95])

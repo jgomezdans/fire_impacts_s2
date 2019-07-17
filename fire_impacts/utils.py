@@ -107,6 +107,50 @@ def extract_chunks(the_files, the_bands=None):
 
 
 @jit(nopython=True, parallel=True)
+def invert_spectral_mixture_model_burn_signal(rho_burn,
+                                                rho_pre, rho_post, mask,
+                                                bu, w):
+    """A method to invert the spectral mixture model using pre and
+    post fire reflectances with the same acquisition geometry.
+
+    """
+    n_bands, ny, nx = rho_pre.shape
+    fcc = np.zeros((ny, nx), dtype=np.float32)
+    a0 = np.zeros((ny, nx), dtype=np.float32)
+    a1 = np.zeros((ny, nx), dtype=np.float32)
+    rmse = np.zeros((ny, nx), dtype=np.float32)
+
+    for i in prange(ny):
+        for j in prange(nx):
+            if mask[i, j]:
+                k = np.ones((n_bands, 1))
+                k[:, 0] = (rho_burn - rho_pre[:, i, j])/bu
+                y = (rho_post[:, i, j] - rho_pre[:, i, j])/bu
+                # system of equations (K*x = y)
+                if np.linalg.cond(k) < 1e3:
+                    sP, residual, rank, singular_vals = np.linalg.lstsq(
+                        k, y, rcond=-1)
+                    fcc[i, j] = float(sP[0])
+                    sFWD = rho_pre[:, i, j] * (1. - fcc[i, j]) + \
+                        fcc[i, j] * rho_burn
+                    rmse[i, j] = (sFWD - rho_post[:, i, j]).std()
+                    a0[i,j] = -800
+                    a1[i,j] = -800
+                else:
+                    fcc[i, j] = -999
+                    a0[i, j] = -800
+                    a1[i, j] = -800
+                    rmse[i, j] = -999
+            else:
+                    fcc[i, j] = -900
+                    a0[i, j] = -900
+                    a1[i, j] = -900
+                    rmse[i, j] = -900
+    return fcc, a0, a1, rmse
+
+
+
+@jit(nopython=True, parallel=True)
 def invert_spectral_mixture_model(rho_pre, rho_post, mask, bu, w):
     """A method to invert the spectral mixture model using pre and
     post fire reflectances with the same acquisition geometry.
