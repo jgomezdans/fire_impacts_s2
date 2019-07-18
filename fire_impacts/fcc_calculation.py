@@ -1,3 +1,32 @@
+#!/usr/bin/env python
+
+"""
+A module for fcc calcuations. Two classes: `Observsations` and `FireImpacts`.
+`Observations` deals with matching and splicing the S2 or Landsat8 files, 
+whereas `FireImpacts` implements the actual per pixel calcluations.
+"""
+
+# fire_impacts_s2 A fcc model calculator for S2 & L8
+# Copyright (c) 2019 J Gomez-Dans. All rights reserved.
+#
+# This file is part of fire_impacts.
+#
+# fire_impacts is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# fire_impacts is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with fire_impacts.  If not, see <http://www.gnu.org/licenses/>.
+
+
+__author__ = "J Gomez-Dans"
+
 import datetime
 import logging
 import shutil

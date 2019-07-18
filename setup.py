@@ -78,5 +78,8 @@ setup(
     ],
     version=find_version("fire_impacts", "__init__.py"),
     packages=["fire_impacts"],
+    entry_points = {
+        'console_scripts': ['fire_impacts=fire_impacts.command_line:main'],
+    },
     zip_safe=False # Apparently needed for conda
 )
