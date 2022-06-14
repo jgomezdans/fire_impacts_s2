@@ -151,7 +151,7 @@ def getResult(fire_name, geometry, burn_date, buffer=250, folder="s2_data/"):
     # Generate the desired image from the given point.
     geometry = ee.Geometry(geometry)
     # Buffer a couple of kms around the burnscar
-    region = geometry.buffer(2000).bounds()
+    region = geometry.buffer(buffer).bounds()
 
     # Build collection of S2 SR images.
     s2_sr_cld_col = get_s2_sr_cld_col(region, start_date, end_date)
@@ -207,7 +207,7 @@ if __name__ == "__main__":
     # subract 10 days? Needs checking
     burn_dates = [
         datetime.datetime.strptime(x["properties"]["datecurrent"], "%Y-%m-%dT%H:%M:%SZ")
-        - datetime.timedelta(days=10)
+        - datetime.timedelta(days=15)
         for x in db["features"][:10]
     ]
     fire_names = [x["properties"]["uniquefireidentifier"] for x in db["features"][:10]]
