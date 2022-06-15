@@ -35,7 +35,7 @@ from osgeo import osr
 
 # Set up logging
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=logging.ERROR,
     format="%(asctime)s - %(name)s - %(module)s."
     + "%(funcName)s - "
     + "- %(levelname)s - %(message)s",

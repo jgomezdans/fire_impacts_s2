@@ -52,7 +52,7 @@ from .utils import invert_spectral_mixture_model_burn_signal
 
 # Set up logging
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=logging.ERROR,
     format="%(asctime)s - %(module)s."
     + "%(funcName)s - "
     + "- %(levelname)s - %(message)s",
