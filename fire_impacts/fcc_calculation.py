@@ -294,6 +294,7 @@ class FireImpacts(object):
         self.ds_burn = None
         self.ds_fwd = None
         self.ds_params = None
+        self.ds_rmse = None
 
     def create_output(
         self,
