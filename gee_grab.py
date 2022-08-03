@@ -23,7 +23,7 @@ CLOUD_FILTER = 40
 CLD_PRB_THRESH = 30
 NIR_DRK_THRESH = 0.15
 CLD_PRJ_DIST = 1
-BUFFER = 50
+BUFFER = 0
 YEAR = 2019
 
 
@@ -141,7 +141,7 @@ def add_cld_shdw_mask(img):
 
 
 # @retry(tries=10, delay=1, backoff=2)
-def getResult(fire_name, geometry, burn_date, buffer=250, folder="s2_data/"):
+def getResult(fire_name, geometry, burn_date, buffer=0, folder="s2_data/"):
     """Handle the HTTP requests to download an image."""
     sel_bands = ["B2", "B3", "B4", "B5", "B6", "B7", "B8", "B11", "B12"]
     one_day = datetime.timedelta(days=1)
@@ -151,7 +151,10 @@ def getResult(fire_name, geometry, burn_date, buffer=250, folder="s2_data/"):
     # Generate the desired image from the given point.
     geometry = ee.Geometry(geometry)
     # Buffer a couple of kms around the burnscar
-    region = geometry.buffer(buffer).bounds()
+    if buffer > 0:
+        region = geometry.buffer(buffer).bounds()
+    else:
+        region = geometry
 
     # Build collection of S2 SR images.
     s2_sr_cld_col = get_s2_sr_cld_col(region, start_date, end_date)
@@ -167,20 +170,28 @@ def getResult(fire_name, geometry, burn_date, buffer=250, folder="s2_data/"):
         s2_sr_median = (
             collection.map(add_cld_shdw_mask).map(apply_cld_shdw_mask).median()
         )
-        url = s2_sr_median.getDownloadURL(
-            {
-                "bands": sel_bands,
-                "region": region,
-                "scale": 20,
-                "filePerBand": False,
-                "format": "GEO_TIFF",
-            }
-        )
-
+        s2_sr_median = s2_sr_median.clip(region).unmask(-9999)
+        try:
+            url = s2_sr_median.getDownloadURL(
+                {
+                    "bands": sel_bands,
+                    "region": region,
+                    "scale": 20,
+                    "filePerBand": False,
+                    "format": "GEO_TIFF",
+                }
+            )
+        except ee.EEException:
+            print(f"No data available. {start_date} <-> {end_date}")
+            files.append(None)
+            continue
         # Handle downloading the actual pixels.
         r = requests.get(url, stream=True)
         if r.status_code != 200:
-            r.raise_for_status()
+            print("Failed getting S2 data")
+            return None
+                  
+            #r.raise_for_status()
 
         filename = f"{fire_name}_{label}.tif"
         folder = Path(folder)
